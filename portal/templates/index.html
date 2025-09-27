@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="mb-6 rounded-2xl overflow-hidden ring-1 ring-white/10 bg-gradient-to-br from-slate-900/70 to-slate-900/40 shadow-glass">
+  <div class="px-6 py-6 sm:px-8 sm:py-7 flex items-center justify-between gap-6">
+    <div>
+      <div class="text-sm text-slate-400/90">Админ-панель</div>
+      <h2 class="text-2xl sm:text-3xl font-extrabold tracking-tight">
+        Инструменты DevOps 🚀
+      </h2>
+    </div>
+    <div class="hidden sm:flex items-center gap-4">
+      <div id="healthDot" class="h-3 w-3 rounded-full bg-rose-500 shadow-[0_0_0_6px_rgba(244,63,94,0.2)]"></div>
+      <div class="text-sm text-slate-300">
+        <div id="healthText" class="font-medium">Проверяю...</div>
+        <div class="text-xs text-slate-400" id="healthSub">—</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="mb-6 bg-slate-900/60 backdrop-blur rounded-2xl p-5 sm:p-6 shadow-glass ring-1 ring-white/10">
+  <div class="flex items-center justify-between mb-4">
+    <h3 class="text-lg font-semibold">Мониторинг</h3>
+    <button id="refreshStatus" class="text-xs text-slate-300 hover:text-white">Обновить</button>
+  </div>
+  <div id="statusGrid" class="grid md:grid-cols-2 gap-4"></div>
+</section>
+
+<div class="grid gap-6 lg:grid-cols-3">
+  <section class="lg:col-span-2 bg-slate-900/60 backdrop-blur rounded-2xl p-5 sm:p-6 shadow-glass ring-1 ring-white/10">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-lg font-semibold">Быстрые действия</h3>
+      <div class="text-xs text-slate-400">/run/&lt;action&gt;</div>
+    </div>
+
+    <div class="grid sm:grid-cols-2 gap-3 items-start">
+      <button data-action="restart_jira" class="opbtn group from-orange-600 to-amber-600 w-full h-12">
+        <span>♻️ Перезапустить Jira</span>
+        <svg class="spin hidden" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor">
+          <circle cx="12" cy="12" r="9" stroke-width="3" class="opacity-30"/>
+          <path d="M21 12a9 9 0 0 1-9 9" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+      </button>
+
+      <button data-action="restart_portal" class="opbtn group from-sky-600 to-indigo-600 w-full h-12">
+        <span>♻️ Перезапустить портал</span>
+        <svg class="spin hidden" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor">
+          <circle cx="12" cy="12" r="9" stroke-width="3" class="opacity-30"/>
+          <path d="M21 12a9 9 0 0 1-9 9" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+      </button>
+
+      <button data-action="backup_portal" class="opbtn group from-emerald-600 to-teal-600 w-full h-12">
+        <span>📦 Бэкап портала</span>
+        <svg class="spin hidden" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor">
+          <circle cx="12" cy="12" r="9" stroke-width="3" class="opacity-30"/>
+          <path d="M21 12a9 9 0 0 1-9 9" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+      </button>
+
+      <button data-action="check_disk" class="opbtn group from-teal-600 to-cyan-600 w-full h-12">
+        <span>🌌 Проверить место на портале</span>
+        <svg class="spin hidden" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor">
+          <circle cx="12" cy="12" r="9" stroke-width="3" class="opacity-30"/>
+          <path d="M21 12a9 9 0 0 1-9 9" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+      </button>
+
+      <a id="openReport" href="/ops/disk" target="_blank"
+         class="inline-flex items-center text-xs px-2.5 py-1 rounded-lg
+          ring-1 ring-white/10 bg-slate-700/60 hover:bg-slate-700 transition
+          sm:col-start-2">
+        📄 Открыть отчёт
+      </a>
+    </div>
+
+    <div id="msg" class="mt-4 text-sm"></div>
+  </section>
+
+  <aside class="bg-slate-900/60 backdrop-blur rounded-2xl p-5 sm:p-6 shadow-glass ring-1 ring-white/10">
+    <h3 class="text-lg font-semibold mb-3">Как это работает</h3>
+    <ol class="list-decimal ml-5 space-y-2 text-sm opacity-90">
+      <li>Кнопка вызывает действие (нужен токен) <code class="px-1 rounded bg-slate-800 ring-1 ring-white/10">POST /run/&lt;action&gt;</code></li>
+      <li>Создается задача в Jira</li>
+      <li>Триггерится пайплайн GitLab с переменной <code>PORTAL_ACTION</code></li>
+      <li>Ansible/скрипт выполняет действия</li>
+    </ol>
+  </aside>
+</div>
+
+<section class="mt-6 bg-slate-900/60 backdrop-blur rounded-2xl p-5 sm:p-6 shadow-glass ring-1 ring-white/10">
+  <div class="flex items-center justify-between mb-4">
+    <h3 class="text-lg font-semibold">История</h3>
+    <button id="clearHistory" class="text-xs text-slate-400 hover:text-slate-200">Очистить</button>
+  </div>
+  <ol id="history" class="space-y-3 text-sm max-h-72 overflow-auto pr-1"></ol>
+</section>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const GITLAB_URL = "{{ gitlab_url|default('', true) }}".trim();
+  const GITLAB_PROJECT_ID = "{{ gitlab_project_id|default('', true) }}".trim();
+  const JIRA_URL = "{{ jira_url|default('https://jira.feebee.ru', true) }}".trim();
+
+  const msg = document.getElementById('msg');
+  const historyEl = document.getElementById('history');
+  const clearBtn = document.getElementById('clearHistory');
+  const statusGrid = document.getElementById('statusGrid');
+
+  const openReport = document.getElementById('openReport');
+  const reportBadge = document.getElementById('reportBadge');
+
+  function statusCard(s) {
+    const ok = !!s.up;
+    const dot = ok ? 'bg-emerald-500' : 'bg-rose-500';
+    const halo = ok ? 'shadow-[0_0_0_6px_rgba(16,185,129,0.2)]' : 'shadow-[0_0_0_6px_rgba(244,63,94,0.2)]';
+    const badge =
+      ok ? '<span class="text-xs px-2 py-[2px] rounded-md bg-emerald-500/20 ring-1 ring-emerald-300/30">ON</span>'
+         : '<span class="text-xs px-2 py-[2px] rounded-md bg-rose-500/20 ring-rose-300/30">OFF</span>';
+    const sub = typeof s.status === 'number' ? `HTTP ${s.status}` : `${s.status}`;
+
+    const isHttp = /^https?:\/\//i.test(s.target);
+    const nameHtml = isHttp
+      ? `<a class="underline decoration-dotted hover:decoration-solid" target="_blank" href="${s.target}">${s.name}</a>`
+      : s.name;
+    const targetHtml = isHttp
+      ? `<a class="underline decoration-dotted break-all" target="_blank" href="${s.target}">${s.target}</a>`
+      : `<span class="break-all">${s.target}</span>`;
+
+    return `
+      <div class="p-4 rounded-xl bg-slate-800/60 ring-1 ring-white/10">
+        <div class="flex items-center justify-between">
+          <div class="font-semibold">${nameHtml}</div>
+          ${badge}
+        </div>
+        <div class="flex items-center gap-2 mt-3">
+          <div class="h-2.5 w-2.5 rounded-full ${dot} ${halo}"></div>
+          <div class="text-sm text-slate-300">${s.ms ?? '—'} мс</div>
+          <div class="text-xs text-slate-400">• ${sub}</div>
+        </div>
+        <div class="mt-2 text-[11px] text-slate-400">${targetHtml}</div>
+      </div>`;
+  }
+
+  async function loadStatus() {
+    try {
+      document.getElementById('healthText').textContent = 'Проверяю статус…';
+      const r = await fetch('/api/status');
+      const j = await r.json();
+      const ok = r.ok && j.ok;
+      const dot = document.getElementById('healthDot');
+      dot.className = 'h-3 w-3 rounded-full ' + (ok
+        ? 'bg-emerald-500 shadow-[0_0_0_6px_rgba(16,185,129,0.2)]'
+        : 'bg-rose-500 shadow-[0_0_0_6px_rgba(244,63,94,0.2)]');
+      document.getElementById('healthText').textContent = ok ? 'Онлайн' : 'Проблемы';
+      document.getElementById('healthSub').textContent = `${j.version || 'prod'} • сервисов: ${j.services?.length ?? 0}`;
+      statusGrid.innerHTML = (j.services || []).map(statusCard).join('');
+
+      if (j.gitlab && !j.gitlab.error && j.gitlab.id) {
+        const gl = j.gitlab;
+        const url = gl.web_url || (GITLAB_URL && GITLAB_PROJECT_ID ? `${GITLAB_URL.replace(/\/+$/,'')}/tms/diploma_project/-/pipelines/${gl.id}` : '');
+        const pillColor = gl.status === 'success' ? 'bg-emerald-500/20 ring-emerald-300/30 text-emerald-200'
+                        : gl.status === 'failed' ? 'bg-rose-500/20 ring-rose-300/30 text-rose-200'
+                        : 'bg-amber-500/20 ring-amber-300/30 text-amber-200';
+        const node = document.createElement('div');
+        node.className = 'md:col-span-2 p-4 rounded-xl bg-slate-800/60 ring-1 ring-white/10';
+        node.innerHTML = `
+          <div class="flex items-center justify-between">
+            <div class="font-semibold">🔥 GitLab: последний пайплайн</div>
+            <span class="text-xs px-2 py-[2px] rounded-md ${pillColor}">${gl.status}</span>
+          </div>
+          <div class="mt-2 text-sm">
+            #${gl.id} (${gl.ref}) ${url ? `— <a class="underline decoration-dotted" target="_blank" href="${url}">открыть</a>` : ''}
+          </div>`;
+        statusGrid.appendChild(node);
+      }
+    } catch (e) {
+      // no-op
+    }
+  }
+  document.getElementById('refreshStatus').addEventListener('click', loadStatus);
+  loadStatus();
+  setInterval(loadStatus, 30000);
+
+  function setReportReady(ready) {
+    if (!openReport || !reportBadge) return;
+    if (ready) {
+      openReport.classList.remove('opacity-60','pointer-events-none','select-none');
+      openReport.removeAttribute('aria-disabled');
+      reportBadge.textContent = 'готово';
+      reportBadge.className = 'text-[11px] px-2 py-[1px] rounded-md bg-emerald-600/25 ring-1 ring-emerald-300/30';
+    } else {
+      openReport.classList.add('opacity-60','pointer-events-none','select-none');
+      openReport.setAttribute('aria-disabled','true');
+      reportBadge.textContent = 'жду…';
+      reportBadge.className = 'text-[11px] px-2 py-[1px] rounded-md bg-slate-500/30 ring-1 ring-white/10';
+    }
+  }
+
+  async function checkReportOnce() {
+    try {
+      const r = await fetch('/ops/disk?check=1&ts=' + Date.now(), { method: 'GET', cache: 'no-store' });
+      return r.ok; // 200 когда готов
+    } catch { return false; }
+  }
+
+  async function waitForReport({timeoutMs = 120000, intervalMs = 3000, autoOpen = false} = {}) {
+    const t0 = Date.now();
+    setReportReady(false);
+    while (Date.now() - t0 < timeoutMs) {
+      if (await checkReportOnce()) {
+        setReportReady(true);
+        if (autoOpen) window.open('/ops/disk', '_blank');
+        toast('Отчёт готов ✅', true);
+        return true;
+      }
+      await new Promise(r => setTimeout(r, intervalMs));
+    }
+    toast('Отчёт не появился за отведённое время ⏳', false);
+    return false;
+  }
+
+  if (openReport) {
+    openReport.addEventListener('click', (e) => {
+      if (openReport.getAttribute('aria-disabled') === 'true') {
+        e.preventDefault();
+        toast('Отчёт еще формируется…', false);
+      }
+    });
+  }
+
+  (async () => {
+    const ready = await checkReportOnce();
+    setReportReady(ready);
+  })();
+
+  document.querySelectorAll('.opbtn').forEach(btn => {
+    btn.classList.add(
+      'relative','isolate','overflow-hidden',
+      'flex','items-center','justify-between','gap-3',
+      'px-4','rounded-xl','text-left','text-white',
+      'bg-gradient-to-br','ring-1','ring-white/10','shadow-glass',
+      'transition-all','duration-300','ease-out',
+      'hover:-translate-y-0.5','active:translate-y-0',
+      'hover:brightness-110','active:brightness-100',
+      'hover:ring-white/20','focus:outline-none','focus:ring-2','focus:ring-white/25',
+      'active:scale-[.99]'
+    );
+    btn.classList.add(
+      'before:content-[""]','before:absolute','before:inset-y-0',
+      'before:-left-1/3','before:w-1/3','before:rounded-full',
+      'before:bg-white/20','before:blur-sm',
+      'before:transform','before:-translate-x-full',
+      'before:transition','before:duration-700','before:ease-out',
+      'before:opacity-0','group-hover:before:opacity-100',
+      'group-hover:before:translate-x-[400%]'
+    );
+    const label = btn.querySelector('span');
+    if (label) label.classList.add('transition-transform','duration-300','group-hover:translate-x-[2px]');
+    btn.addEventListener('click', () => runAction(btn));
+  });
+
+  function setBusy(btn, yes) {
+    const spinner = btn.querySelector('.spin');
+    if (yes) {
+      spinner?.classList.remove('hidden');
+      btn.classList.add('opacity-80','pointer-events-none');
+      btn.setAttribute('aria-busy', 'true');
+    } else {
+      spinner?.classList.add('hidden');
+      btn.classList.remove('opacity-80','pointer-events-none');
+      btn.removeAttribute('aria-busy');
+    }
+  }
+
+  function jiraLink(key) {
+    if (!key) return '-';
+    if (!JIRA_URL) return `<b>${key}</b>`;
+    const base = JIRA_URL.replace(/\/+$/,'');
+    const href = /\/browse\/?$/i.test(base)
+      ? `${base}/${encodeURIComponent(key)}`
+      : `${base}/browse/${encodeURIComponent(key)}`;
+    return `<a class="underline decoration-dotted" target="_blank" href="${href}"><b>${key}</b></a>`;
+  }
+
+  function pipelineLink(id) {
+    if (!id) return '';
+    if (GITLAB_URL && GITLAB_PROJECT_ID) {
+      const href = `${GITLAB_URL.replace(/\/+$/,'')}/tms/diploma_project/-/pipelines/${id}`;
+      return `, pipeline: <a class="underline decoration-dotted" target="_blank" href="${href}"><b>${id}</b></a>`;
+    }
+    return `, Gitlab pipeline: <b>${id}</b>`;
+  }
+
+  function addHistory(item) {
+    const list = JSON.parse(localStorage.getItem('ops_history') || '[]');
+    list.unshift(item);
+    localStorage.setItem('ops_history', JSON.stringify(list.slice(0, 20)));
+    renderHistory();
+  }
+
+  function renderHistory() {
+    const list = JSON.parse(localStorage.getItem('ops_history') || '[]');
+    historyEl.innerHTML = '';
+    if (!list.length) { historyEl.innerHTML = '<li class="text-slate-400">Пока пусто</li>'; return; }
+    list.forEach(x => {
+      const li = document.createElement('li');
+      li.className = 'p-3 rounded-xl bg-slate-800/60 ring-1 ring-white/10';
+      li.innerHTML = `
+        <div class="flex items-center justify-between gap-2">
+          <div class="font-medium">${x.action}</div>
+          <div class="text-[11px] opacity-70">${x.at}</div>
+        </div>
+        <div class="mt-1 text-slate-300 text-sm">
+          ${x.ok ? `✅ Jira: ${jiraLink(x.jira)}${pipelineLink(x.pipeline_id)}` : `❌ ${x.error || 'Ошибка'}`}
+        </div>`;
+      historyEl.appendChild(li);
+    });
+  }
+  clearBtn.addEventListener('click', () => { localStorage.removeItem('ops_history'); renderHistory(); });
+
+  async function runAction(btn) {
+    const action = btn.dataset.action;
+    let token = getToken();
+    if (!token) { token = await openTokenModal(); if (!token) return; localStorage.setItem('portal_token', token); }
+    msg.textContent = 'Выполняю...'; setBusy(btn, true);
+    const started = new Date();
+    try {
+      if (action === 'check_disk' || action === 'check_disk_portal') setReportReady(false);
+
+      const r = await fetch('/run/' + action, { method: 'POST', headers: { 'X-Portal-Token': token } });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+
+      const at = started.toLocaleString('ru-RU', { hour12: false }).replace(',', '');
+      msg.innerHTML = `✅ Успешно выполнено! Задача в Jira: ${jiraLink(j.jira)}${pipelineLink(j.pipeline_id)}`;
+      toast('Успешно: ' + action + ' ✅', true);
+      addHistory({ action, at, ok: true, jira: j.jira, pipeline_id: j.pipeline_id });
+
+      if (action === 'check_disk' || action === 'check_disk_portal') {
+        waitForReport({ timeoutMs: 180000, intervalMs: 3000, autoOpen: false });
+      }
+    } catch (e) {
+      msg.textContent = '❌ ' + e.message;
+      toast('Ошибка: ' + e.message, false);
+      const at = new Date().toLocaleString('ru-RU', { hour12: false }).replace(',', '');
+      addHistory({ action, at, ok: false, error: e.message });
+    } finally { setBusy(btn, false); }
+  }
+
+  renderHistory();
+</script>
+{% endblock %}

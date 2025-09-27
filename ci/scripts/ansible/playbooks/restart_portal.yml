@@ -1,0 +1,43 @@
+---
+- name: Restart portal
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    portal_compose: /opt/portal/docker-compose.yml
+    portal_service: portal
+    portal_check_url: https://portal.feebee.ru/health
+    portal_check_port: 9000
+
+  tasks:
+    - name: docker compose up -d portal
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - -f
+          - "{{ portal_compose }}"
+          - up
+          - -d
+          - "{{ portal_service }}"
+
+    - name: Wait by URL (если задан)
+      when: portal_check_url | length > 0
+      ansible.builtin.uri:
+        url: "{{ portal_check_url }}"
+        method: GET
+        status_code: 200,201,202,204,301,302,308
+        validate_certs: yes
+      register: http_check
+      until: http_check.status | default(0) in [200,201,202,204,301,302,308]
+      retries: 30
+      delay: 2
+
+    - name: Wait by local port (если URL не задан)
+      when: portal_check_url | length == 0 and (portal_check_port | int) > 0
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ portal_check_port | int }}"
+        delay: 2
+        timeout: 120

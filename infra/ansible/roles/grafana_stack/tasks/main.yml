@@ -1,0 +1,32 @@
+---
+- name: Убедиться, что установлен Docker Compose CLI
+  ansible.builtin.command: docker compose version
+  register: compose_ver
+  changed_when: false
+  failed_when: compose_ver.rc != 0
+
+- name: Создать директорию /opt/monitoring/stack
+  ansible.builtin.file:
+    path: /opt/monitoring/stack
+    state: directory
+    mode: "0755"
+
+- name: Скопировать стек на vm-grafana
+  ansible.builtin.synchronize:
+    src: "{{ playbook_dir }}/../files/grafana_stack/"
+    dest: /opt/monitoring/stack/
+    recursive: yes
+    delete: yes
+
+- name: Создать .env для Grafana (логин/пароль)
+  ansible.builtin.copy:
+    dest: /opt/monitoring/stack/.env
+    mode: "0600"
+    content: |
+      GF_ADMIN_USER={{ grafana_admin_user | default('admin') }}
+      GF_ADMIN_PASSWORD={{ grafana_admin_password | default('admin') }}
+
+- name: Поднять стек (Grafana, Mimir, Loki)
+  community.docker.docker_compose_v2:
+    project_src: /opt/monitoring/stack
+    state: present

@@ -1,0 +1,168 @@
+---
+- name: Backup DevOps Portal and push to remote via rsync
+  hosts: "{{ target | default('portal.feebee.ru') }}"
+  become: true
+  gather_facts: false
+
+  vars:
+    # --- Что архивируем и где храним локально ---
+    portal_dir: /opt/portal
+    backup_root: /var/backups/portal
+    keep_days: 7
+
+    # --- Куда отправлять rsync (удалённый хост/пользователь/порт/путь) ---
+    rsync_host: "{{ backup_remote_host | default('jira.feebee.ru') }}"
+    rsync_user: "{{ lookup('env','ANSIBLE_USER') | default('koshka14144', true) }}"
+    rsync_port: "{{ backup_remote_port | default(22) }}"
+    # По умолчанию пишем в домашнюю директорию пользователя (без sudo)
+    rsync_path: "{{ backup_remote_dir | default('/home/' ~ rsync_user ~ '/portal_mirror') }}"
+
+    # --- Ключ для исходящего SSH с портала (берём из CI-переменных) ---
+    backup_ssh_key_b64: >-
+      {{ lookup('env','BACKUP_SSH_KEY_B64')
+         | default(lookup('env','ANSIBLE_SSH_KEY_B64'), true) }}
+    backup_ssh_key_path: /root/.ssh/id_ed25519
+
+  pre_tasks:
+    - name: Ensure rsync is installed
+      ansible.builtin.package:
+        name: rsync
+        state: present
+
+    - name: Ensure backup directory exists
+      ansible.builtin.file:
+        path: "{{ backup_root }}"
+        state: directory
+        mode: "0750"
+
+    - name: Fail if no SSH key material provided
+      ansible.builtin.fail:
+        msg: "No SSH key provided: set BACKUP_SSH_KEY_B64 or ANSIBLE_SSH_KEY_B64 in CI/CD variables"
+      when: (backup_ssh_key_b64 | default('') | length) == 0
+
+  tasks:
+    - name: Compute timestamp and host tag
+      ansible.builtin.set_fact:
+        ts: "{{ lookup('pipe','date +%Y%m%d_%H%M%S') }}"
+        host_tag: "{{ inventory_hostname | replace('.', '-') }}"
+
+    - name: Detect docker compose CLI
+      ansible.builtin.shell: |
+        if docker compose version >/dev/null 2>&1; then
+          echo "docker compose"
+        elif docker-compose version >/dev/null 2>&1; then
+          echo "docker-compose"
+        else
+          echo "docker compose"
+        fi
+      args: { executable: /bin/bash }
+      register: compose_cli
+      changed_when: false
+
+    - name: Make temp dir
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: portal_bak_
+      register: tmpd
+
+    - name: Collect metadata (compose ps + images)
+      ansible.builtin.shell: |
+        {
+          echo "# Backup at $(date -Is)";
+          echo "# portal_dir={{ portal_dir }}";
+          echo;
+          {{ compose_cli.stdout }} -f "{{ portal_dir }}/docker-compose.yml" ps || true
+          echo;
+          docker images | grep -i portal || true
+        } > "{{ tmpd.path }}/meta.txt"
+      args: { executable: /bin/bash }
+
+    - name: Build backup filename
+      ansible.builtin.set_fact:
+        backup_file: "{{ backup_root }}/portal_{{ host_tag }}_{{ ts }}.tar.gz"
+
+    - name: Archive portal folder + meta
+      ansible.builtin.archive:
+        path:
+          - "{{ portal_dir }}"
+          - "{{ tmpd.path }}/meta.txt"
+        dest: "{{ backup_file }}"
+        format: gz
+        mode: "0640"
+
+    - name: Remove temp dir
+      ansible.builtin.file:
+        path: "{{ tmpd.path }}"
+        state: absent
+
+    - name: Rotate old backups (older than {{ keep_days }} days)
+      ansible.builtin.find:
+        paths: "{{ backup_root }}"
+        patterns: [ "portal_*.tar.gz" ]
+        age: "{{ keep_days }}d"
+        age_stamp: mtime
+      register: old_baks
+
+    - name: Delete old backups
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_baks.files }}"
+      when: old_baks.matched | int > 0
+
+    # -------- подготовка ключа и проверки --------
+    - name: Ensure /root/.ssh exists
+      ansible.builtin.file:
+        path: /root/.ssh
+        state: directory
+        mode: "0700"
+
+    - name: Materialize outbound SSH key on portal
+      ansible.builtin.copy:
+        dest: "{{ backup_ssh_key_path }}"
+        content: "{{ backup_ssh_key_b64 | b64decode }}"
+        mode: "0600"
+        owner: root
+        group: root
+
+    - name: Assert backup ssh key exists
+      ansible.builtin.stat:
+        path: "{{ backup_ssh_key_path }}"
+      register: sshkey
+
+    - name: Fail if backup ssh key missing
+      ansible.builtin.fail:
+        msg: "SSH key {{ backup_ssh_key_path }} not found on portal"
+      when: not sshkey.stat.exists
+
+    # ----------- RSYNC на удалённый хост -----------
+    - name: Ensure remote dir exists (via SSH from portal)
+      ansible.builtin.command: >
+        ssh -i {{ backup_ssh_key_path }}
+        -p {{ rsync_port }}
+        -o StrictHostKeyChecking=no
+        -o UserKnownHostsFile=/dev/null
+        {{ rsync_user }}@{{ rsync_host }}
+        "mkdir -p {{ rsync_path }}"
+      changed_when: false
+
+    - name: Push backup via rsync over SSH from portal
+      environment:
+        RSYNC_RSH: "ssh -i {{ backup_ssh_key_path }} -p {{ rsync_port }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+      ansible.builtin.command: >
+        rsync -avz --partial
+        "{{ backup_file }}"
+        {{ rsync_user }}@{{ rsync_host }}:"{{ rsync_path }}/"
+      changed_when: true
+
+    - name: Show result
+      ansible.builtin.debug:
+        msg:
+          - "Local backup (portal): {{ backup_file }}"
+          - "Rsync target: {{ rsync_user }}@{{ rsync_host }}:{{ rsync_path }}"
+
+  post_tasks:
+    - name: Cleanup outbound SSH key from portal
+      ansible.builtin.file:
+        path: "{{ backup_ssh_key_path }}"
+        state: absent

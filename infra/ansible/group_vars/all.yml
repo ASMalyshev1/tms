@@ -1,0 +1,5 @@
+mimir_remote_write_url: "https://mimir.feebee.ru/api/v1/push"
+loki_push_url:          "https://loki.feebee.ru/loki/api/v1/push"
+
+alloy_image: "grafana/alloy:latest"
+alloy_container_name: "alloy"

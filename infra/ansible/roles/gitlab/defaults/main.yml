@@ -1,0 +1,15 @@
+gitlab_external_url: "https://gitlab.feebee.ru"
+gitlab_hostname: "https://gitlab.feebee.ru"
+
+gitlab_http_bind: 8090
+gitlab_ssh_bind: 2222
+gitlab_shell_ssh_port: 22
+
+gitlab_image: "gitlab/gitlab-ce:latest"
+gitlab_timezone: "Europe/Moscow"
+
+gitlab_cpus: "2"
+gitlab_mem_limit: "5g"
+gitlab_mem_reservation: "2g"
+
+gitlab_root: "/opt/gitlab"

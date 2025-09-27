@@ -1,0 +1,13 @@
+services:
+  portal:
+    image: ${PORTAL_IMAGE}
+    container_name: ops-portal
+    restart: unless-stopped
+    env_file: [ "{{ portal_root }}/.env" ]
+    # наружу — через nginx+certbot; локально порт открыт только на loopback
+    ports: [ "127.0.0.1:9000:9000" ]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,0 +1,61 @@
+---
+- name: Verify Docker present
+  command: docker --version
+  register: docker_ver
+  changed_when: false
+  failed_when: docker_ver.rc != 0
+
+- name: Ensure directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ portal_root }}"
+    - "{{ portal_root }}/secrets"
+
+# Логин в реестр GitLab CE (если приватный)
+- name: Login to GitLab CE registry
+  community.docker.docker_login:
+    registry_url: "{{ portal_registry_url }}"
+    username: "{{ portal_registry_username }}"
+    password: "{{ portal_registry_password }}"
+    reauthorize: true
+    state: present
+  when: portal_registry_login | bool
+
+# Рендер .env (включая PORTAL_IMAGE)
+- name: Render .env
+  template:
+    src: env.j2
+    dest: "{{ portal_root }}/.env"
+    mode: "0600"
+
+# Рендер compose.yml
+- name: Render compose.yml
+  template:
+    src: compose.yml.j2
+    dest: "{{ portal_root }}/compose.yml"
+    mode: "0644"
+  notify: redeploy portal
+
+# Старт/обновление прямо сейчас
+- name: Flush handlers (deploy now)
+  meta: flush_handlers
+
+# Простой healthcheck
+- name: Wait for TCP 9000
+  wait_for:
+    host: 127.0.0.1
+    port: 9000
+    delay: 2
+    timeout: 120
+
+- name: HTTP probe /
+  shell: "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:9000/ || true"
+  register: http_probe
+  changed_when: false
+
+- name: Show HTTP status code
+  debug:
+    msg: "Portal HTTP status: {{ http_probe.stdout | default('n/a') }}"

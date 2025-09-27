@@ -1,0 +1,95 @@
+---
+- name: Install nginx + certbot
+  apt:
+    name: [nginx, certbot, python3-certbot-nginx]
+    state: present
+    update_cache: true
+
+- name: Ensure webroot exists
+  file:
+    path: "{{ tls_webroot | default('/var/www/letsencrypt') }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: "0755"
+
+# 1-й проход: рендерим HTTP-конфиг (или сразу HTTPS, если сертификат уже есть), включаем сайт и перезапускаем Nginx
+- name: Check cert presence
+  stat:
+    path: "/etc/letsencrypt/live/{{ item.server_name }}/fullchain.pem"
+  loop: "{{ tls_sites }}"
+  loop_control: { loop_var: item }
+  register: cert_stats
+
+- name: Render site configs (HTTP if no cert yet, HTTPS if cert exists)
+  template:
+    src: "{{ (cert_stats.results[loop.index0].stat.exists | default(false)) | ternary('site_https.conf.j2','site_http.conf.j2') }}"
+    dest: "/etc/nginx/sites-available/{{ item.server_name }}.conf"
+    mode: "0644"
+  loop: "{{ tls_sites }}"
+  loop_control: { loop_var: item }
+  notify: reload nginx
+
+- name: Enable vhosts
+  file:
+    src: "/etc/nginx/sites-available/{{ item.server_name }}.conf"
+    dest: "/etc/nginx/sites-enabled/{{ item.server_name }}.conf"
+    state: link
+    force: true
+  loop: "{{ tls_sites }}"
+  loop_control: { loop_var: item }
+  notify: reload nginx
+
+- name: Nginx config test
+  command: nginx -t
+  register: nginx_test
+  changed_when: false
+
+- name: Reload nginx (pre-cert)
+  service:
+    name: nginx
+    state: reloaded
+  when: nginx_test.rc == 0
+
+# 2-й проход: для доменов без сертификата — получить LE через webroot
+- name: Obtain certificates via webroot (only if absent)
+  command: >
+    certbot certonly --webroot
+    -w {{ tls_webroot | default('/var/www/letsencrypt') }}
+    -d {{ item.server_name }}
+    --non-interactive --agree-tos --email {{ letsencrypt_email }}
+    --keep-until-expiring
+  loop: "{{ tls_sites }}"
+  loop_control: { loop_var: item }
+  when: not (cert_stats.results[loop.index0].stat.exists | default(false))
+  notify: reload nginx
+
+# 3-й проход: теперь у всех есть сертификаты — рендерим HTTPS-конфиг окончательно
+- name: Render final HTTPS configs
+  template:
+    src: "site_https.conf.j2"
+    dest: "/etc/nginx/sites-available/{{ item.server_name }}.conf"
+    mode: "0644"
+  loop: "{{ tls_sites }}"
+  loop_control: { loop_var: item }
+  notify: reload nginx
+
+- name: Nginx config test (final)
+  command: nginx -t
+  register: nginx_test_final
+  changed_when: false
+
+- name: Reload nginx (final)
+  service:
+    name: nginx
+    state: reloaded
+  when: nginx_test_final.rc == 0
+
+# Хук на автообновление — при обновлении сертификата перезагружаем nginx
+- name: Add deploy hook to reload nginx after renew
+  copy:
+    dest: /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+    mode: "0755"
+    content: |
+      #!/usr/bin/env bash
+      systemctl reload nginx || true

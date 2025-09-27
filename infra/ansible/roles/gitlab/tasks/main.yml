@@ -1,0 +1,44 @@
+---
+- name: Check Docker present
+  command: docker --version
+  register: docker_ver
+  changed_when: false
+  failed_when: docker_ver.rc != 0
+
+- name: Ensure directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ gitlab_root }}"
+    - "{{ gitlab_root }}/config"
+    - "{{ gitlab_root }}/logs"
+    - "{{ gitlab_root }}/data"
+
+- name: Assert required vars
+  assert:
+    that:
+      - gitlab_external_url | length > 0
+      - gitlab_hostname | length > 0
+
+- name: Render docker-compose
+  template:
+    src: compose.yml.j2
+    dest: "{{ gitlab_root }}/compose.yml"
+    mode: "0644"
+  notify: "deploy gitlab"
+
+- name: Flush handlers (start now)
+  meta: flush_handlers
+
+- name: Wait GitLab health on local bind
+  shell: "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:{{ gitlab_http_bind }}/-/health || true"
+  register: curl_status
+  retries: 60
+  delay: 10
+  until: curl_status.stdout is match('^20[0-9]$')
+
+- name: Initial root password hint
+  debug:
+    msg: "Пароль root лежит на ВМ: {{ gitlab_root }}/config/initial_root_password (валиден 24ч). URL: {{ gitlab_external_url }}"

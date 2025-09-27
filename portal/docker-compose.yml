@@ -1,0 +1,9 @@
+services:
+  portal:
+    image: ${PORTAL_IMAGE:-portal_local:latest}
+    env_file: .env
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - /opt/portal/static:/opt/portal/static:ro
+    restart: unless-stopped

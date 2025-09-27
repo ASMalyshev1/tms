@@ -1,0 +1,8 @@
+__pycache__/
+*.retry
+*.tfstate*
+*.tfvars
+*.terraform/
+.env
+secrets*.yml
+.git

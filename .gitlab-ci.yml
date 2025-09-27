@@ -1,0 +1,220 @@
+stages: [build, test, push, delivery, deploy]
+
+default:
+  before_script:
+    - echo "CI job => $CI_JOB_NAME"
+
+# -------- BUILD --------
+build_portal:
+  stage: build
+  image: docker:24
+  services:
+    - name: docker:24-dind
+      alias: docker
+      command: ["--tls=false"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_DRIVER: overlay2
+    DOCKER_BUILDKIT: "1"
+  tags: ["portal_docker"]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "trigger"'
+      when: never
+    - changes:
+        - "portal/**/*"
+        - ".gitlab-ci.yml"
+  before_script:
+    - |
+      for i in $(seq 1 30); do
+        docker info >/dev/null 2>&1 && break
+        echo "Waiting for dockerd... ($i)"; sleep 1
+      done
+    - docker info
+  script:
+    - cd portal
+    - docker build -t portal_local:latest .
+    - docker save portal_local:latest -o "$CI_PROJECT_DIR/image.tar"
+    - echo "PORTAL_IMAGE=portal_local:latest" > "$CI_PROJECT_DIR/build.env"
+  artifacts:
+    paths: [image.tar]
+    reports: { dotenv: build.env }
+    expire_in: 1 day
+
+# -------- TEST --------
+run_tests:
+  stage: test
+  image: docker:24
+  services:
+    - name: docker:24-dind
+      alias: docker
+      command: ["--tls=false"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  tags: ["portal_docker"]
+  needs: ["build_portal"]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "trigger"'
+      when: never
+    - changes:
+        - "portal/**/*"
+        - ".gitlab-ci.yml"
+  before_script:
+    - |
+      for i in $(seq 1 30); do
+        docker info >/dev/null 2>&1 && break
+        echo "Waiting for dockerd... ($i)"; sleep 1
+      done
+    - docker info
+  script:
+    - |
+      if [ -f "$CI_PROJECT_DIR/image.tar" ]; then
+        docker load -i "$CI_PROJECT_DIR/image.tar"
+        echo "Lightweight smoke:"
+        docker image inspect portal_local:latest >/dev/null
+      else
+        echo "No image.tar from build — skipping tests."
+      fi
+
+# -------- PUSH --------
+push_to_registry:
+  stage: push
+  image: docker:24
+  services:
+    - name: docker:24-dind
+      alias: docker
+      command: ["--tls=false"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    IMAGE_NAME: "$CI_REGISTRY_IMAGE/portal"
+    IMAGE_TAG: "${CI_COMMIT_TAG:-$CI_COMMIT_SHORT_SHA}"
+    FULL_IMAGE: "$IMAGE_NAME:$IMAGE_TAG"
+  tags: ["portal_docker"]
+  needs: ["run_tests"]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "trigger"'
+      when: never
+    - changes:
+        - "portal/**/*"
+        - ".gitlab-ci.yml"
+  before_script:
+    - |
+      for i in $(seq 1 30); do
+        docker info >/dev/null 2>&1 && break
+        echo "Waiting for dockerd... ($i)"; sleep 1
+      done
+    - docker info
+  script:
+    - |
+      if [ -f "$CI_PROJECT_DIR/image.tar" ]; then
+        docker load -i "$CI_PROJECT_DIR/image.tar"
+        if [ -n "${CI_REGISTRY:-}" ] && [ -n "${CI_REGISTRY_USER:-}" ] && [ -n "${CI_REGISTRY_PASSWORD:-}" ]; then
+          echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
+          docker tag portal_local:latest "$FULL_IMAGE"
+          docker push "$FULL_IMAGE"
+          echo "IMAGE_REF=$FULL_IMAGE" > "$CI_PROJECT_DIR/delivery.env"
+        else
+          echo "Registry credentials not set, skipping push."
+          echo "IMAGE_REF=portal_local:latest" > "$CI_PROJECT_DIR/delivery.env"
+        fi
+      else
+        echo "No image.tar — nothing to push. Producing fallback delivery.env"
+        echo "IMAGE_REF=portal_local:latest" > "$CI_PROJECT_DIR/delivery.env"
+      fi
+  artifacts:
+    reports: { dotenv: delivery.env }
+    paths: [delivery.env]
+    expire_in: 7 days
+
+# -------- DELIVERY --------
+delivery_portal:
+  stage: delivery
+  tags: ["portal_docker"]
+  needs: ["push_to_registry"]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "trigger"'
+      when: never
+    - changes:
+        - "portal/**/*"
+        - ".gitlab-ci.yml"
+  script:
+    - echo "IMAGE_REF=${IMAGE_REF:-portal_local:latest}" > delivery.env
+    - echo "BUILD_COMMIT=$CI_COMMIT_SHA" >> delivery.env
+    - echo "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> delivery.env
+  artifacts:
+    reports: { dotenv: delivery.env }
+    paths: [delivery.env]
+    expire_in: 7 days
+
+# -------- DEPLOY --------
+deploy_portal:
+  stage: deploy
+  tags: ["portal_shell"]
+  needs:
+    - job: delivery_portal
+      artifacts: true
+    - job: build_portal
+      artifacts: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "trigger"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - "portal/**/*"
+        - ".gitlab-ci.yml"
+  variables:
+    COMPOSE_FILE: /opt/portal/docker-compose.yml
+    DEPLOY_DIR: /opt/portal
+  script:
+    - cd "$DEPLOY_DIR"
+    - |
+      if [ -n "${IMAGE_REF:-}" ] && [[ "$IMAGE_REF" == "$CI_REGISTRY_IMAGE"* ]]; then
+        echo "Pulling image from registry: $IMAGE_REF"
+        docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD"
+        docker pull "$IMAGE_REF"
+        export PORTAL_IMAGE="$IMAGE_REF"
+        RECREATE_ARGS="--pull always"
+      elif [ -f "$CI_PROJECT_DIR/image.tar" ]; then
+        echo "Loading local image.tar"
+        docker load -i "$CI_PROJECT_DIR/image.tar"
+        export PORTAL_IMAGE="${PORTAL_IMAGE:-portal_local:latest}"
+        RECREATE_ARGS="--force-recreate"
+      else
+        echo "No IMAGE_REF and no image.tar — using existing local image tag."
+        export PORTAL_IMAGE="${PORTAL_IMAGE:-portal_local:latest}"
+        RECREATE_ARGS="--force-recreate"
+      fi
+    - docker compose up -d $RECREATE_ARGS --remove-orphans
+    - docker image prune -f
+
+# ---------- ACTIONS ----------
+ops_action:
+  stage: deploy
+  tags: ["portal_shell"]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "trigger" && $PORTAL_ACTION'
+  script:
+    - echo "$PORTAL_ACTION ; HOST=${HOST:-unset} ; PLAYBOOK_DIR=${PLAYBOOK_DIR:-unset}"
+    - set -euo pipefail
+    - command -v ansible-playbook >/dev/null || { echo "ansible-playbook not found. Install ansible-core on runner" >&2; exit 10; }
+    - mkdir -p ~/.ssh
+    - test -n "${ANSIBLE_SSH_KEY_B64:-}" || { echo "ANSIBLE_SSH_KEY_B64 is empty"; exit 11; }
+    - echo "$ANSIBLE_SSH_KEY_B64" | base64 -d > ~/.ssh/id_ed25519 || echo "$ANSIBLE_SSH_KEY_B64" | openssl base64 -d -A > ~/.ssh/id_ed25519
+    - chmod 600 ~/.ssh/id_ed25519
+    - printf "Host *\n  StrictHostKeyChecking no\n  UserKnownHostsFile=/dev/null\n" > ~/.ssh/config
+    - printf "[defaults]\nhost_key_checking=False\nretry_files_enabled=False\n" > ansible.cfg
+    - echo "${HOST:-vm_gitlab} ansible_user=${ANSIBLE_USER:-root}" > inventory.ini
+    - >
+      BASE="${PLAYBOOK_DIR:-ci/scripts/ansible/playbooks}";
+      case "$PORTAL_ACTION" in
+        restart_portal)                  PLAYBOOK="$BASE/restart_portal.yml" ;;
+        restart_jira|restart_jira_stack) PLAYBOOK="$BASE/restart_jira.yml" ;;
+        check_disk)                      PLAYBOOK="$BASE/check_disk.yml" ;;
+        backup_portal)                   PLAYBOOK="$BASE/backup_portal.yml" ;;
+        *) echo "Unknown action: $PORTAL_ACTION" >&2; exit 2 ;;
+      esac;
+      echo "Using: $PLAYBOOK";
+      test -f "$PLAYBOOK" || { echo "Playbook not found: $PLAYBOOK"; exit 3; }
+    - ansible-playbook -i inventory.ini "$PLAYBOOK" -e "target=${HOST:-}"

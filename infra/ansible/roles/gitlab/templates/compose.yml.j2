@@ -1,0 +1,33 @@
+services:
+  gitlab:
+    image: {{ gitlab_image }}
+    container_name: gitlab
+    hostname: {{ gitlab_hostname }}
+    restart: unless-stopped
+    shm_size: "512m"
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url "{{ gitlab_external_url }}"
+        gitlab_rails['time_zone'] = "{{ gitlab_timezone }}"
+
+        # Мы за внешним Nginx (TLS там), в контейнере только HTTP:80
+        nginx['listen_port'] = 80
+        nginx['listen_https'] = false
+        letsencrypt['enable'] = false
+
+        # Какой SSH-порт показывать в UI
+        gitlab_rails['gitlab_shell_ssh_port'] = {{ gitlab_shell_ssh_port }}
+
+    ports:
+      - "127.0.0.1:{{ gitlab_http_bind }}:80"   # HTTP внутрь контейнера
+      - "127.0.0.1:{{ gitlab_ssh_bind }}:22"   # SSH внутрь контейнера
+    volumes:
+      - {{ gitlab_root }}/config:/etc/gitlab
+      - {{ gitlab_root }}/logs:/var/log/gitlab
+      - {{ gitlab_root }}/data:/var/opt/gitlab
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+    cpus: "{{ gitlab_cpus }}"
+    mem_limit: "{{ gitlab_mem_limit }}"
+    mem_reservation: "{{ gitlab_mem_reservation }}"

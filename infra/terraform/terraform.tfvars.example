@@ -1,0 +1,6 @@
+yc_token            = "t1.9euelZqWipWWjciZjY_Lx5TL"
+cloud_id            = "b1gi"
+folder_id           = "b1g5"
+default_zone        = "ru-central1-d"
+ssh_pub             = "ssh-ed6456456456"
+public_zone         = "example.ru."

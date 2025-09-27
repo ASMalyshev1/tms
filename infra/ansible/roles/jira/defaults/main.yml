@@ -1,0 +1,13 @@
+jira_proxy_name: "jira.feebee.ru"
+jira_enable_proxy: true
+
+jira_image: "atlassian/jira-software:10.3.10"
+postgres_image: "postgres:15-alpine"
+
+jira_container_name: "jira"
+postgres_container_name: "jira-postgres"
+jira_data_dir: "/opt/jira"
+jira_http_port: 8080
+
+jira_jvm_min: "1g"
+jira_jvm_max: "2g"

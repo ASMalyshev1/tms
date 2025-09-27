@@ -1,0 +1,8 @@
+---
+- name: Pull Jira images
+  listen: "deploy jira"
+  command: docker compose -f {{ jira_data_dir }}/compose.yml pull
+
+- name: Up Jira stack
+  listen: "deploy jira"
+  command: docker compose -f {{ jira_data_dir }}/compose.yml up -d

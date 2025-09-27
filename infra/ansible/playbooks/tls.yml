@@ -1,0 +1,8 @@
+---
+- hosts: all
+  become: true
+  vars:
+    letsencrypt_email: example@gmail.com
+    tls_webroot: /var/www/letsencrypt
+  roles:
+    - tls

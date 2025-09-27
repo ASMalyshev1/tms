@@ -1,0 +1,13 @@
+# HTTP: webroot для ACME и редирект на HTTPS
+server {
+  listen 80;
+  server_name {{ item.server_name }};
+
+  location /.well-known/acme-challenge/ {
+    root {{ tls_webroot | default('/var/www/letsencrypt') }};
+  }
+
+  location / {
+    return 301 https://$host$request_uri;
+  }
+}

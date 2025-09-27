@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="128" height="128" fill="none">
+  <defs>
+    <linearGradient id="g" x1="8" y1="8" x2="56" y2="56">
+      <stop stop-color="#00C7B1"></stop><stop offset="1" stop-color="#60A5FA"></stop>
+    </linearGradient>
+    <linearGradient id="glow" x1="16" y1="16" x2="48" y2="48">
+      <stop stop-color="rgba(0,199,177,.35)"></stop><stop offset="1" stop-color="rgba(96,165,250,.15)"></stop>
+    </linearGradient>
+    <filter id="blur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="1.8"></feGaussianBlur>
+    </filter>
+  </defs>
+
+  <!-- мягкое кольцо "ауры" -->
+  <path d="M16 32 C 20 24, 28 24, 32 32 C 36 40, 44 40, 48 32 C 44 24, 36 24, 32 32 C 28 40, 20 40, 16 32" stroke="url(#glow)" stroke-width="10" filter="url(#blur)" opacity=".8"></path>
+
+  <!-- основная лента -->
+  <path d="M16 32 C 20 24, 28 24, 32 32 C 36 40, 44 40, 48 32 C 44 24, 36 24, 32 32 C 28 40, 20 40, 16 32" stroke="url(#g)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"></path>
+
+  <!-- тонкая внутренняя подсветка -->
+  <path d="M16 32 C 20 24, 28 24, 32 32 C 36 40, 44 40, 48 32 C 44 24, 36 24, 32 32 C 28 40, 20 40, 16 32" stroke="rgba(255,255,255,.25)" stroke-width="1.2" opacity=".6"></path>
+</svg>

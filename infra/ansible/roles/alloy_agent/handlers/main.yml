@@ -1,0 +1,6 @@
+---
+- name: Restart alloy
+  community.docker.docker_container:
+    name: "{{ alloy_container_name }}"
+    state: started
+    restart: true

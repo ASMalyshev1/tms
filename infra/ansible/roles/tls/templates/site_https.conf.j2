@@ -1,0 +1,28 @@
+# HTTP: редирект + webroot (на всякий случай для последующих renew)
+server {
+  listen 80;
+  server_name {{ item.server_name }};
+  location /.well-known/acme-challenge/ {
+    root {{ tls_webroot | default('/var/www/letsencrypt') }};
+  }
+  location / { return 301 https://$host$request_uri; }
+}
+
+# HTTPS: reverse-proxy к приложению
+server {
+  listen 443 ssl http2;
+  server_name {{ item.server_name }};
+
+  ssl_certificate     /etc/letsencrypt/live/{{ item.server_name }}/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/{{ item.server_name }}/privkey.pem;
+
+  include /etc/nginx/proxy_params;
+  proxy_read_timeout 180s;
+
+  location / {
+    proxy_pass {{ item.upstream }};
+    # Если нужно форсировать HTTPS-заголовки для бэкенда:
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-Ssl on;
+  }
+}

@@ -1,0 +1,92 @@
+---
+- name: Check docker is installed
+  command: docker --version
+  register: docker_ver
+  changed_when: false
+  failed_when: docker_ver.rc != 0
+
+- name: Ensure data dirs exist
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ jira_data_dir }}"
+    - "{{ jira_data_dir }}/data"
+    - "{{ jira_data_dir }}/postgres"
+
+- name: Assert DB password set
+  assert:
+    that:
+      - jira_db_password is defined
+      - jira_db_password | length >= 6
+      - jira_db_password != "CHANGE_ME"
+    fail_msg: "Check your jira_db_password"
+
+- name: Render docker compose file
+  template:
+    src: compose.yml.j2
+    dest: "{{ jira_data_dir }}/compose.yml"
+    mode: "0644"
+
+# --- Сначала поднимем только Postgres ---
+- name: Pull images (optional)
+  command: docker compose -f {{ jira_data_dir }}/compose.yml pull
+  changed_when: false
+  failed_when: false
+
+- name: Up Postgres only
+  command: docker compose -f {{ jira_data_dir }}/compose.yml up -d postgres
+
+- name: Wait Postgres readiness (pg_isready)
+  shell: docker exec {{ postgres_container_name }} pg_isready -U {{ jira_db_user }} -d {{ jira_db_name }} -h localhost
+  register: pg_ready
+  retries: 30
+  delay: 3
+  until: pg_ready.rc == 0
+  changed_when: false
+
+# --- Гварды консистентности DB ↔️ Jira_HOME ---
+- name: Check dbconfig.xml presence
+  stat:
+    path: "{{ jira_data_dir }}/data/dbconfig.xml"
+  register: dbcfg
+
+- name: Check if DB looks initialized (jira.version property)
+  shell: >
+    docker exec -u postgres {{ postgres_container_name }}
+    psql -tA -d {{ jira_db_name }} -c
+    "select count(*) from propertyentry where property_key='jira.version';"
+  register: dbinit
+  changed_when: false
+  failed_when: false
+
+- name: Fail on inconsistent state (DB initialized but dbconfig.xml is missing)
+  fail:
+    msg: >
+      Неконсистентно: БД уже инициализирована, а {{ jira_data_dir }}/data/dbconfig.xml отсутствует.
+  when:
+    - (dbinit.stdout | default('0')) | int > 0
+    - not dbcfg.stat.exists
+
+# --- Теперь стартуем Jira ---
+- name: Up Jira service
+  command: docker compose -f {{ jira_data_dir }}/compose.yml up -d jira
+
+- name: Wait for Jira to listen locally
+  wait_for:
+    host: "127.0.0.1"
+    port: "{{ jira_http_port }}"
+    delay: 5
+    timeout: 600
+
+- name: Touch initialized marker
+  file:
+    path: "{{ jira_data_dir }}/.initialized"
+    state: touch
+
+- name: Hint next steps
+  debug:
+    msg: >
+      Jira: http://127.0.0.1:{{ jira_http_port }} (локально на ВМ).
+      Снаружи — https://{{ jira_proxy_name }} (nginx+TLS).

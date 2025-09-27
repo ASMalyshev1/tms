@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ title|default("DevOps Portal") }}</title>
+
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter','ui-sans-serif','system-ui'] },
+          colors: { brand: '#00C7B1' },
+          boxShadow: { glass: '0 10px 30px -12px rgba(0,0,0,0.45)' },
+          keyframes: {
+            float: { '0%,100%': { transform: 'translateY(0)' }, '50%': { transform: 'translateY(-2px)' } },
+            pulseRing: {
+              '0%': { boxShadow: '0 0 0 0 rgba(0,199,177,0.45)' },
+              '70%': { boxShadow: '0 0 0 12px rgba(0,199,177,0)' },
+              '100%': { boxShadow: '0 0 0 0 rgba(0,199,177,0)' }
+            },
+          },
+          animation: { float: 'float 4s ease-in-out infinite', pulseRing: 'pulseRing 2.5s ease-out infinite' }
+        }
+      }
+    }
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <meta name="theme-color" content="#020617">
+</head>
+
+<body class="min-h-screen bg-slate-950 text-slate-100 selection:bg-brand/30">
+
+  <div class="pointer-events-none fixed inset-0 opacity-[0.55] blur-3xl"
+       style="background: radial-gradient(800px 400px at 10% 0%, rgba(0,199,177,.2), transparent 60%),
+                       radial-gradient(800px 400px at 100% 0%, rgba(59,130,246,.20), transparent 50%),
+                       radial-gradient(600px 400px at 50% 100%, rgba(99,102,241,.15), transparent 50%);"></div>
+
+
+  <div class="relative">
+    <div class="max-w-6xl mx-auto px-6 pt-6">
+      <header class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+
+          <div class="h-16 w-16 sm:h-20 sm:w-20 rounded-xl bg-brand/15 ring-1 ring-brand/40 grid place-content-center">
+            <img src="{{ url_for('static', filename='logo.svg') }}" class="h-9 w-9 sm:h-11 sm:w-11" alt="DevOps Portal logo">
+          </div>
+          <div>
+            <h1 class="text-xl sm:text-2xl font-extrabold tracking-tight">
+              <span class="bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">DevOps Portal</span>
+            </h1>
+            <div class="text-[11px] uppercase tracking-wider text-slate-400/80 flex items-center gap-2">
+              <span id="envBadge" class="inline-flex items-center px-2 py-[2px] rounded-md ring-1 ring-white/10 bg-slate-800/70">
+                {{ env_name|default("Prod") }}
+              </span>
+              <span class="opacity-60">{{ version|default("Dev") }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button id="changeTokenBtn"
+                  class="px-3 py-2 rounded-lg text-sm bg-slate-800/70 hover:bg-slate-800 ring-1 ring-white/10 transition">
+            🔑 Токен
+          </button>
+        </div>
+      </header>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <main class="relative max-w-6xl mx-auto px-6 pb-12 pt-4">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="max-w-6xl mx-auto px-6 pb-8 text-xs text-slate-400/80">
+    © 2025 — Roman Ivanov
+  </footer>
+
+  <div id="toaster" class="fixed bottom-4 right-4 space-y-2 z-50"></div>
+
+  <div id="tokenModal" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/60"></div>
+    <div class="absolute inset-0 grid place-items-center px-4">
+      <div class="w-full max-w-sm rounded-2xl bg-slate-900 ring-1 ring-white/10 shadow-glass p-5">
+        <h2 class="text-lg font-semibold mb-3">Portal token</h2>
+        <label class="block text-sm text-slate-300 mb-2" for="tokenInput">Введите токен доступа</label>
+        <div class="relative">
+          <input id="tokenInput" type="password" autocomplete="current-password"
+                 class="w-full rounded-xl bg-slate-800 ring-1 ring-white/10 px-3 py-2 pr-10 focus:outline-none focus:ring-2 focus:ring-brand/50"
+                 placeholder="••••••••">
+          <button type="button" id="toggleToken"
+                  class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300/80 hover:text-white text-sm">
+            Показать
+          </button>
+        </div>
+        <div class="flex justify-end gap-2 mt-4">
+          <button id="cancelToken" class="px-3 py-2 rounded-lg bg-slate-800 ring-1 ring-white/10 hover:bg-slate-700">Отмена</button>
+          <button id="saveToken" class="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500">Сохранить</button>
+        </div>
+        <div class="mt-2 text-xs text-slate-400">Подсказка: Enter — сохранить, Esc — отмена</div>
+      </div>
+    </div>
+  </div>
+
+  {% block scripts %}{% endblock %}
+
+  <script>
+    // Тосты
+    function toast(msg, ok = true) {
+      const t = document.getElementById('toaster');
+      const el = document.createElement('div');
+      el.className =
+        'rounded-xl px-4 py-3 text-sm shadow-glass ring-1 transition ' +
+        (ok ? 'bg-emerald-600/90 ring-emerald-300/30' : 'bg-rose-600/90 ring-rose-300/30');
+      el.innerHTML = msg;
+      t.appendChild(el);
+      setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateY(4px)'; }, 2400);
+      setTimeout(() => el.remove(), 2700);
+    }
+
+    function getToken() { return localStorage.getItem('portal_token') || ''; }
+    function setToken(v) { if (v !== undefined) { v ? localStorage.setItem('portal_token', v) : localStorage.removeItem('portal_token'); } }
+
+    function openTokenModal() {
+      return new Promise(resolve => {
+        const modal = document.getElementById('tokenModal');
+        const input = document.getElementById('tokenInput');
+        const save  = document.getElementById('saveToken');
+        const cancel= document.getElementById('cancelToken');
+        const toggle= document.getElementById('toggleToken');
+
+        input.value = getToken();
+        input.type = 'password';
+        toggle.textContent = 'Показать';
+        modal.classList.remove('hidden');
+        setTimeout(() => input.focus(), 0);
+
+        function close(result) {
+          modal.classList.add('hidden');
+          document.removeEventListener('keydown', onKey);
+          save.onclick = cancel.onclick = toggle.onclick = null;
+          resolve(result);
+        }
+        function onKey(e) {
+          if (e.key === 'Escape') { e.preventDefault(); close(''); }
+          if (e.key === 'Enter')  { e.preventDefault(); save.click(); }
+        }
+
+        save.onclick = () => {
+          const v = input.value.trim();
+          setToken(v);
+          if (v) toast('Токен сохранён ✅', true);
+          close(v);
+        };
+        cancel.onclick = () => close('');
+        toggle.onclick = () => {
+          const show = input.type === 'password';
+          input.type = show ? 'text' : 'password';
+          toggle.textContent = show ? 'Скрыть' : 'Показать';
+          input.focus({ preventScroll: true });
+        };
+        document.addEventListener('keydown', onKey, { passive: false });
+
+        modal.addEventListener('click', (e) => {
+          if (e.target === modal || e.target.classList.contains('bg-black/60')) close('');
+        }, { once: true });
+      });
+    }
+
+    document.getElementById('changeTokenBtn').addEventListener('click', () => { openTokenModal(); });
+
+    (function applyTokenFromURL(){
+      try {
+        const url = new URL(window.location.href);
+        const t = url.searchParams.get('token');
+        if (t) {
+          setToken(t);
+          toast('Токен сохранён из URL ✅', true);
+          url.searchParams.delete('token');
+          window.history.replaceState({}, '', url.pathname + (url.searchParams.toString() ? '?' + url.searchParams.toString() : '') + url.hash);
+        }
+      } catch (_) {}
+    })();
+
+    (function() {
+      const el = document.getElementById('envBadge');
+      const val = (el?.textContent || '').toLowerCase();
+      const map = {
+        prod:  'bg-rose-500/20 ring-rose-300/40 text-rose-200',
+        stage: 'bg-amber-500/20 ring-amber-300/40 text-amber-200',
+        test:  'bg-sky-500/20 ring-sky-300/40 text-sky-200',
+        dev:   'bg-emerald-500/20 ring-emerald-300/40 text-emerald-200',
+      };
+      for (const cls of Object.values(map)) el?.classList.remove(...cls.split(' '));
+      if (val.includes('prod')) el?.classList.add(...map.prod.split(' '));
+      else if (val.includes('stag') || val.includes('stg')) el?.classList.add(...map.stage.split(' '));
+      else if (val.includes('test')) el?.classList.add(...map.test.split(' '));
+      else el?.classList.add(...map.dev.split(' '));
+    })();
+  </script>
+</body>
+</html>

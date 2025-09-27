@@ -1,0 +1,85 @@
+---
+- name: Check disk usage on portal and publish report
+  hosts: "{{ target | default('portal.feebee.ru') }}"
+  become: true
+  gather_facts: false
+
+  vars:
+    reports_dir: /opt/portal/static/reports
+    reports_owner: root
+    reports_group: root
+    keep_reports: 30
+
+  tasks:
+    - name: Ensure reports dir exists
+      ansible.builtin.file:
+        path: "{{ reports_dir }}"
+        state: directory
+        mode: "0755"
+        owner: "{{ reports_owner }}"
+        group: "{{ reports_group }}"
+
+    - name: Collect df -h
+      ansible.builtin.command: df -h
+      register: df_out
+      changed_when: false
+
+    - name: Collect docker system df (graceful)
+      ansible.builtin.command: docker system df
+      register: docker_df
+      changed_when: false
+      failed_when: false
+
+    - name: Timestamp
+      ansible.builtin.set_fact:
+        ts: "{{ lookup('pipe','date +%Y%m%d_%H%M%S') }}"
+
+    - name: Save JSON report
+      ansible.builtin.copy:
+        dest: "{{ reports_dir }}/check_disk_{{ ts }}.json"
+        mode: "0644"
+        owner: "{{ reports_owner }}"
+        group: "{{ reports_group }}"
+        content: |
+          {
+            "generated_at": "{{ ts }}",
+            "df": {{ df_out.stdout | to_json }},
+            "docker_df": {{ (docker_df.rc | default(1)) == 0
+                             | ternary(docker_df.stdout, docker_df.stderr | default('docker unavailable'))
+                             | to_json }}
+          }
+
+    - name: Save pretty text report
+      ansible.builtin.copy:
+        dest: "{{ reports_dir }}/check_disk_{{ ts }}.txt"
+        mode: "0644"
+        owner: "{{ reports_owner }}"
+        group: "{{ reports_group }}"
+        content: |
+          === Disk usage (df -h) @ {{ ts }} ===
+          {{ df_out.stdout }}
+
+          === Docker usage (docker system df) ===
+          {{ (docker_df.rc | default(1)) == 0
+              | ternary(docker_df.stdout, docker_df.stderr | default('docker unavailable')) }}
+
+    - name: Symlink latest
+      ansible.builtin.file:
+        src: "{{ reports_dir }}/check_disk_{{ ts }}.txt"
+        dest: "{{ reports_dir }}/check_disk_latest.txt"
+        state: link
+        force: true
+        owner: "{{ reports_owner }}"
+        group: "{{ reports_group }}"
+
+    - name: Prune old JSON reports (keep last {{ keep_reports }})
+      ansible.builtin.shell: |
+        ls -1t {{ reports_dir }}/check_disk_*.json 2>/dev/null | tail -n +{{ keep_reports | int + 1 }} | xargs -r rm -f
+      args: { executable: /bin/bash }
+      changed_when: true
+
+    - name: Prune old TXT reports (keep last {{ keep_reports }})
+      ansible.builtin.shell: |
+        ls -1t {{ reports_dir }}/check_disk_*.txt 2>/dev/null | grep -v 'latest\.txt$' | tail -n +{{ keep_reports | int + 1 }} | xargs -r rm -f
+      args: { executable: /bin/bash }
+      changed_when: true

@@ -1,0 +1,116 @@
+// ===== ALLOY LOGGING =====
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+// ===== METRICS =====
+prometheus.exporter.unix "node" {}
+prometheus.exporter.self "self" {}
+
+// Нормализация меток (красивые имена хостов)
+prometheus.relabel "fix_labels" {
+  rule {
+    action       = "replace"
+    target_label = "instance"
+    replacement  = "{{ inventory_hostname }}"
+  }
+  rule {
+    action       = "replace"
+    target_label = "nodename"
+    replacement  = "{{ inventory_hostname }}"
+  }
+  // rule { action = "replace" target_label = "job" replacement = "node" }
+  forward_to = [prometheus.remote_write.to_mimir.receiver]
+}
+
+prometheus.scrape "host" {
+  job_name        = "node"
+  scrape_interval = "15s"
+  targets         = prometheus.exporter.unix.node.targets
+  forward_to      = [prometheus.relabel.fix_labels.receiver]
+}
+
+prometheus.scrape "self" {
+  job_name        = "alloy"
+  scrape_interval = "15s"
+  targets         = prometheus.exporter.self.self.targets
+  forward_to      = [prometheus.relabel.fix_labels.receiver]
+}
+
+prometheus.remote_write "to_mimir" {
+  endpoint {
+    url = "{{ mimir_remote_write_url }}"
+    {% if mimir_insecure_skip_verify | default(false) or mimir_ca_file is defined %}
+    tls_config {
+      {% if mimir_ca_file is defined %}ca_file = "{{ mimir_ca_file }}"{% endif %}
+      {% if mimir_insecure_skip_verify | default(false) %}insecure_skip_verify = true{% endif %}
+    }
+    {% endif %}
+  }
+  external_labels = {
+    instance = "{{ inventory_hostname }}",
+    env      = "{{ env | default('prod') }}",
+  }
+}
+
+// ===== LOGS =====
+loki.write "default" {
+  endpoint {
+    url = "{{ loki_push_url }}"
+    {% if loki_insecure_skip_verify | default(false) or loki_ca_file is defined %}
+    tls_config {
+      {% if loki_ca_file is defined %}ca_file = "{{ loki_ca_file }}"{% endif %}
+      {% if loki_insecure_skip_verify | default(false) %}insecure_skip_verify = true{% endif %}
+    }
+    {% endif %}
+  }
+}
+
+// journald
+loki.source.journal "systemd" {
+  labels = {
+    host = "{{ inventory_hostname }}",
+    job  = "journald",
+    env  = "{{ env | default('prod') }}",
+  }
+  forward_to = [loki.write.default.receiver]
+}
+
+// docker
+discovery.docker "local" { host = "unix:///var/run/docker.sock" }
+
+loki.source.docker "docker" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.docker.local.targets
+  labels     = {
+    host = "{{ inventory_hostname }}",
+    job  = "docker",
+    env  = "{{ env | default('prod') }}",
+  }
+  forward_to = [loki.write.default.receiver]
+}
+
+// /var/log/*.log — корректный матч + читать только новые строки
+local.file_match "varlogs" {
+  path_targets = [
+    { "__path__" = "/var/log/*.log" },
+  ]
+}
+
+loki.source.file "varlogs" {
+  targets       = local.file_match.varlogs.targets
+  tail_from_end = true
+  forward_to    = [loki.process.varlogs.receiver]
+}
+
+loki.process "varlogs" {
+  stage.static_labels {
+    values = {
+      host = "{{ inventory_hostname }}",
+      job  = "varlogs",
+      env  = "{{ env | default('prod') }}",
+    }
+  }
+  forward_to = [loki.write.default.receiver]
+}

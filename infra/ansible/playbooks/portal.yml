@@ -1,0 +1,7 @@
+---
+- hosts: portal
+  become: true
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/portal/secrets.yml"
+  roles:
+    - portal

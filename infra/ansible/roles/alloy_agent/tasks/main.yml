@@ -1,0 +1,41 @@
+---
+- name: Ensure python docker SDK (Debian/Ubuntu)
+  ansible.builtin.apt:
+    name: python3-docker
+    state: present
+    update_cache: yes
+
+- name: Ensure Alloy config dir
+  ansible.builtin.file:
+    path: /etc/alloy
+    state: directory
+    mode: "0755"
+
+- name: Render config.alloy
+  ansible.builtin.template:
+    src: templates/config.alloy.j2
+    dest: /etc/alloy/config.alloy
+    mode: "0644"
+  notify: Restart alloy
+
+- name: Run/Update Alloy container
+  community.docker.docker_container:
+    name: "{{ alloy_container_name }}"
+    image: "{{ alloy_image }}"
+    pull: true
+    restart_policy: unless-stopped
+    privileged: true
+    user: "0:0"
+    command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "/etc/alloy/config.alloy"]
+    ports:
+      - "12345:12345"
+    volumes:
+      - /etc/alloy:/etc/alloy:ro
+      - /var/log:/var/log:ro
+      - /run/log/journal:/run/log/journal:ro
+      - /var/log/journal:/var/log/journal:ro
+      - /etc/machine-id:/etc/machine-id:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+    state: started

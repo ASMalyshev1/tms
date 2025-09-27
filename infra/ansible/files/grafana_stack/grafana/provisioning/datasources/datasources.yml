@@ -1,0 +1,17 @@
+apiVersion: 1
+
+datasources:
+  - name: Mimir
+    type: prometheus
+    url: https://mimir.feebee.ru/prometheus
+    access: proxy
+    isDefault: true
+    jsonData:
+      httpMethod: POST
+    editable: false
+
+  - name: Loki
+    type: loki
+    url: https://loki.feebee.ru
+    access: proxy
+    editable: false

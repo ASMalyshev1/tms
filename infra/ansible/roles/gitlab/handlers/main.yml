@@ -1,0 +1,8 @@
+---
+- name: Deploy GitLab stack
+  listen: "deploy gitlab"
+  shell: |
+    docker compose -f {{ gitlab_root }}/compose.yml pull
+    docker compose -f {{ gitlab_root }}/compose.yml up -d
+  args:
+    executable: /bin/bash

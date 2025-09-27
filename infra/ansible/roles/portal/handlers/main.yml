@@ -1,0 +1,8 @@
+---
+- name: redeploy portal
+  listen: redeploy portal
+  shell: |
+    set -e
+    docker compose -f {{ portal_root }}/compose.yml pull
+    docker compose -f {{ portal_root }}/compose.yml up -d
+  args: { executable: /bin/bash }

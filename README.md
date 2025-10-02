@@ -57,8 +57,8 @@
 3. Разворачивание всех сервисов (Gitlab, Jira, PostgreSQL, Grafana, Mimir, Loki, Alloy, Portal) в контейнерах Docker.
 3. Мониторг метрик ВМ с помощью Mimir и логов с помощью Loki, визуализация в Grafana.
 4. Запуск ansible-пллейбуков через Gitlab CI/CD по кнопкам с портала.
-5. Использования Gitlab CI/CD для деплоя портала (2 gitlab-runner: DinD и shell).
-5. Постановка задач в Jira.
+5. Использования Gitlab CI/CD для портала (2 gitlab-runner: DinD и shell).
+5. Создание задач в Jira при запуске действия по кнопке.
 6. Отправка уведомлений в Telegram (интеграция с Gitlab, Jira, Grafana).
 7. Создание бекапов с помощью rsync, cp, tar, pg_dump.
 
@@ -88,11 +88,14 @@ tar -czvf /opt/backup/psql_$(date +%d-%m-%Y_%H-%M-%S).tar.gz /var/pgsql/
 Пример бэкапа портала (запуск по кнопке через Gitlab CI/CD)
 
 ```bash
+# crontab -e
+0 3 * * * /home/user/scripts/backup.sh
+# backup.sh
 # Создаем архив
 tar -czf /var/backups/portal/portal_backup_$(date +%Y%m%d_%H%M%S).tar.gz /opt/portal/
 
 # Синхронизируем с удаленным хостом
-rsync -avz -e "ssh -p 22 -i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" /var/backups/portal/ koshka14144@backup.feebee.ru:/opt/backup/portal_mirror/
+rsync -avz -e "ssh -p 22 -i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" /var/backups/portal/ backup-user@backup.example.ru:/opt/backup/portal_mirror/
 
 # Очистка старых бэкапов (старше 7 дней)
 find /var/backups/portal/ -name "portal_backup_*.tar.gz" -mtime +7 -delete

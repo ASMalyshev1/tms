@@ -14,7 +14,6 @@
     - "{{ portal_root }}"
     - "{{ portal_root }}/secrets"
 
-# Логин в реестр GitLab CE (если приватный)
 - name: Login to GitLab CE registry
   community.docker.docker_login:
     registry_url: "{{ portal_registry_url }}"
@@ -24,14 +23,12 @@
     state: present
   when: portal_registry_login | bool
 
-# Рендер .env (включая PORTAL_IMAGE)
 - name: Render .env
   template:
     src: env.j2
     dest: "{{ portal_root }}/.env"
     mode: "0600"
 
-# Рендер compose.yml
 - name: Render compose.yml
   template:
     src: compose.yml.j2
@@ -39,11 +36,9 @@
     mode: "0644"
   notify: redeploy portal
 
-# Старт/обновление прямо сейчас
 - name: Flush handlers (deploy now)
   meta: flush_handlers
 
-# Простой healthcheck
 - name: Wait for TCP 9000
   wait_for:
     host: 127.0.0.1
